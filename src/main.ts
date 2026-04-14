@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import './polyfills/os-tmpdir.js';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';

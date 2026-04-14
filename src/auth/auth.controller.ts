@@ -1,29 +1,13 @@
 import { Controller, Post, Body, Req, Inject } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service.js';
-import { ChangePasswordDto, LoginDto, RefreshDto, RegisterDto, RequestVerificationDto, VerifyCodeDto } from './auth.dto.js';
+import { ChangePasswordDto, LoginDto, RefreshDto, RegisterDto } from './auth.dto.js';
 import { Public } from '../common/decorators/public.decorator.js';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(@Inject(AuthService) private readonly authService: AuthService) {}
-
-  @Public()
-  @Post('request-verification')
-  @ApiBody({ type: () => RequestVerificationDto })
-  @ApiOperation({ summary: 'Request verification code for email/phone' })
-  requestVerification(@Body() dto: RequestVerificationDto) {
-    return this.authService.requestVerification(dto);
-  }
-
-  @Public()
-  @Post('verify-code')
-  @ApiBody({ type: () => VerifyCodeDto })
-  @ApiOperation({ summary: 'Confirm verification code for email/phone' })
-  verifyCode(@Body() dto: VerifyCodeDto) {
-    return this.authService.verifyCode(dto);
-  }
 
   @Public()
   @Post('register')

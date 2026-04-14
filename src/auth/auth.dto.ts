@@ -31,10 +31,6 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   fullName?: string;
-
-  @ApiProperty({ type: String, example: '123456' })
-  @IsString()
-  verificationCode!: string;
 }
 
 export class LoginDto {
@@ -69,20 +65,3 @@ export class ChangePasswordDto {
   newPassword!: string;
 }
 
-export class RequestVerificationDto {
-  @ApiPropertyOptional({ type: String, format: 'email', example: 'user@example.com' })
-  @IsOptional()
-  @IsEmail()
-  email?: string;
-
-  @ApiPropertyOptional({ type: String, example: '+79991234567' })
-  @IsOptional()
-  @IsString()
-  phone?: string;
-}
-
-export class VerifyCodeDto extends RequestVerificationDto {
-  @ApiProperty({ type: String, example: '123456' })
-  @IsString()
-  code!: string;
-}

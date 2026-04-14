@@ -10,12 +10,13 @@ import { AIModule } from './ai/ai.module.js';
 import { ConsentsModule } from './consents/consents.module.js';
 import { TherapistClientsModule } from './therapist-clients/therapist-clients.module.js';
 import { StatsModule } from './stats/stats.module.js';
-import { NotificationsModule } from './notifications/notifications.module.js';
+import { AdminPanelModule } from './admin/admin.module.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    AdminPanelModule,
     AuthModule,
     UsersModule,
     DiaryEntriesModule,
@@ -25,7 +26,6 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     ConsentsModule,
     TherapistClientsModule,
     StatsModule,
-    NotificationsModule,
   ],
 })
 export class AppModule {}

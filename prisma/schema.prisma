@@ -18,9 +18,7 @@ model User {
   alexithymicProfile AlexithymicProfile?
   therapistProfile   TherapistProfile?
   consents           Consent[]
-  notifications      Notification[]
   auditLogs          AuditLog[]
-  verificationCodes  VerificationCode[]
 }
 
 enum Role {
@@ -73,11 +71,12 @@ model DiaryEntry {
   alexithymicId   String
   alexithymic     AlexithymicProfile @relation(fields: [alexithymicId], references: [userId])
   date            DateTime           @default(now())
-  rawText         String?
+  situation       String?
   thought         String?
-  emotion         String?
   reaction        String?
-  tag             String?
+  emotion         String?
+  behavior        String?
+  tags            String?
   visibility      Visibility         @default(PRIVATE)
   isDeleted       Boolean            @default(false)
   createdAt       DateTime           @default(now())
@@ -156,16 +155,6 @@ enum ConsentType {
   AI_USAGE
 }
 
-model Notification {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  type        String
-  scheduledAt DateTime
-  sentAt      DateTime?
-  status      String   @default("PENDING")
-}
-
 model AuditLog {
   id          String   @id @default(uuid())
   userId      String?
@@ -195,22 +184,3 @@ model UserTag {
   @@unique([userId, name])
 }
 
-model VerificationCode {
-  id         String   @id @default(uuid())
-  userId     String?
-  user       User?    @relation(fields: [userId], references: [id])
-  target     String
-  type       VerificationType
-  code       String
-  expiresAt  DateTime
-  verifiedAt DateTime?
-  consumedAt DateTime?
-  createdAt  DateTime @default(now())
-
-  @@index([target, type, createdAt])
-}
-
-enum VerificationType {
-  EMAIL
-  PHONE
-}
