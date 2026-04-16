@@ -61,7 +61,7 @@ function scalarEmotionSummary(picks?: { name: string; percent: number }[]): stri
   return picks.map((e) => `${e.name} ${e.percent}%`).join(', ');
 }
 
-/** Порядок полей: ситуация → мысль → реакция → эмоции (массив) → поведение → теги → видимость */
+/** Порядок полей: ситуация → мысль → реакция → эмоции (массив) → поведение → альтернативное поведение → теги → видимость */
 class CreateDiaryEntryDto {
   @ApiPropertyOptional({ type: String, description: 'Ситуация', example: 'Разговор с начальником на работе' })
   @IsOptional()
@@ -96,6 +96,11 @@ class CreateDiaryEntryDto {
   @IsOptional()
   @IsString()
   behavior?: string;
+
+  @ApiPropertyOptional({ type: String, description: 'Другое поведение', example: 'Обговорить с начальником как улучшить ситуацию' })
+  @IsOptional()
+  @IsString()
+  behaviorAlt?: string;
 
   @ApiPropertyOptional({
     type: 'array',
@@ -149,6 +154,7 @@ class DiaryEntriesController {
           reaction: body.reaction,
           emotion: scalarEmotionSummary(body.emotion),
           behavior: body.behavior,
+          behaviorAlt: body.behaviorAlt,
           tags: serializeDiaryEntryTags(body.tags),
           visibility: body.visibility ?? 'PRIVATE',
         },
@@ -246,6 +252,7 @@ class DiaryEntriesController {
     if (body.thought !== undefined) data.thought = body.thought;
     if (body.reaction !== undefined) data.reaction = body.reaction;
     if (body.behavior !== undefined) data.behavior = body.behavior;
+    if (body.behaviorAlt !== undefined) data.behaviorAlt = body.behaviorAlt;
     if (body.tags !== undefined) data.tags = serializeDiaryEntryTags(body.tags);
     if (body.visibility !== undefined) data.visibility = body.visibility;
     if (body.emotion !== undefined) {

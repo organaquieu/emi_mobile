@@ -9,15 +9,9 @@ export enum RegisterRole {
 }
 
 export class RegisterDto {
-  @ApiPropertyOptional({ type: String, format: 'email', example: 'user@example.com' })
-  @IsOptional()
+  @ApiProperty({ type: String, format: 'email', example: 'user@example.com' })
   @IsEmail()
-  email?: string;
-
-  @ApiPropertyOptional({ type: String, example: '+79991234567' })
-  @IsOptional()
-  @IsString()
-  phone?: string;
+  email!: string;
 
   @ApiProperty({ type: String, minLength: 8, example: 'SecurePass1!' })
   @MinLength(8)
@@ -34,15 +28,9 @@ export class RegisterDto {
 }
 
 export class LoginDto {
-  @ApiPropertyOptional({ type: String, format: 'email' })
-  @IsOptional()
+  @ApiProperty({ type: String, format: 'email', example: 'user@example.com' })
   @IsEmail()
-  email?: string;
-
-  @ApiPropertyOptional({ type: String, example: '+79991234567' })
-  @IsOptional()
-  @IsString()
-  phone?: string;
+  email!: string;
 
   @ApiProperty({ type: String, format: 'password' })
   @IsString()

@@ -19,6 +19,7 @@ model User {
   therapistProfile   TherapistProfile?
   consents           Consent[]
   auditLogs          AuditLog[]
+  tasAttempts        TasAttempt[]
 }
 
 enum Role {
@@ -76,6 +77,7 @@ model DiaryEntry {
   reaction        String?
   emotion         String?
   behavior        String?
+  behaviorAlt     String?
   tags            String?
   visibility      Visibility         @default(PRIVATE)
   isDeleted       Boolean            @default(false)
@@ -83,11 +85,33 @@ model DiaryEntry {
   updatedAt       DateTime           @updatedAt
   emotions        DiaryEntryEmotion[]
   aiConsultations AIConsultation[]
+  reflection      Reflection?
 }
 
 enum Visibility {
   PRIVATE
   THERAPIST
+}
+
+/** Рефлексия после записи дневника (одна на запись). */
+model Reflection {
+  id           String                 @id @default(uuid())
+  diaryEntryId String                 @unique
+  diaryEntry   DiaryEntry             @relation(fields: [diaryEntryId], references: [id], onDelete: Cascade)
+  /** JSON: [{ "name": "Страх", "percent": 80 }] */
+  emotions     Json
+  stateChange  ReflectionStateChange
+  plans        String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+}
+
+/** Ответ на «Стало ли вам легче после записи?» */
+enum ReflectionStateChange {
+  BETTER
+  SLIGHTLY_BETTER
+  NO_CHANGE
+  WORSE
 }
 
 model DiaryEntryEmotion {
@@ -182,5 +206,27 @@ model UserTag {
   color     String?
 
   @@unique([userId, name])
+}
+
+/** Прохождение TAS-20: в БД только агрегаты и время (без ответов по пунктам). */
+model TasAttempt {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completedAt DateTime    @default(now())
+  totalScore  Int
+  difScore    Int
+  ddfScore    Int
+  eotScore    Int
+  category    TasCategory
+
+  @@index([userId, completedAt])
+}
+
+/** Интерпретация суммарного балла TAS-20 (Bagby et al.): ≤51 / 52–60 / ≥61. */
+enum TasCategory {
+  NONE
+  POSSIBLE
+  ALEXITHYMIA
 }
 

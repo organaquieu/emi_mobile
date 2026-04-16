@@ -19,6 +19,8 @@ const ADMIN_MODELS = [
   'DiaryEntryEmotion',
   'Emotion',
   'AIConsultation',
+  'Reflection',
+  'TasAttempt',
   'Consent',
   'AuditLog',
   'Session',

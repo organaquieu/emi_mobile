@@ -9,7 +9,8 @@ import { EmotionsModule } from './emotions/emotions.module.js';
 import { AIModule } from './ai/ai.module.js';
 import { ConsentsModule } from './consents/consents.module.js';
 import { TherapistClientsModule } from './therapist-clients/therapist-clients.module.js';
-import { StatsModule } from './stats/stats.module.js';
+import { ReflectionModule } from './reflection/reflection.module.js';
+import { TasModule } from './tas/tas.module.js';
 import { AdminPanelModule } from './admin/admin.module.js';
 
 @Module({
@@ -25,7 +26,8 @@ import { AdminPanelModule } from './admin/admin.module.js';
     AIModule,
     ConsentsModule,
     TherapistClientsModule,
-    StatsModule,
+    ReflectionModule,
+    TasModule,
   ],
 })
 export class AppModule {}

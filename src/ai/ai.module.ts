@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import type { AxiosResponse } from 'axios';
 import { randomUUID } from 'crypto';
+import { buildAIConsultSystemPrompt } from './ai-consult-system-prompt.js';
 
 type GigaChatTokenPayload = {
   access_token: string;
@@ -117,7 +118,11 @@ class AIController {
   }
 
   @Post('consult')
-  @ApiOperation({ summary: 'AI консультация через GigaChat' })
+  @ApiOperation({
+    summary: 'AI консультация через GigaChat',
+    description:
+      'Модель получает системный промпт рефлексии (без диагноза, JSON: reply, emotions×5 из каталога GET /emotions, suggested_next).',
+  })
   @ApiBody({ type: AIConsultDto })
   async consult(@Req() req: any, @Body() body: AIConsultDto) {
     const consent = await this.prisma.consent.findFirst({ where: { userId: req.user.sub, type: 'AI_USAGE', isActive: true } });
@@ -136,7 +141,7 @@ class AIController {
         response = await axios.post(chatUrl, {
           model,
           messages: [
-            { role: 'system', content: 'You are a journaling assistant. Never provide medical diagnosis. Return structured JSON with at least 2 emotion interpretations.' },
+            { role: 'system', content: buildAIConsultSystemPrompt() },
             { role: 'user', content: body.prompt },
           ],
           temperature: 0.7,

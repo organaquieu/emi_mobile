@@ -15,25 +15,15 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const email = dto.email?.trim() || null;
-    const phone = dto.phone?.trim() || null;
-    if (!email && !phone) {
-      throw new BadRequestException('Provide email or phone');
-    }
+    const email = dto.email.trim().toLowerCase();
 
-    if (email) {
-      const byEmail = await this.prisma.user.findUnique({ where: { email } });
-      if (byEmail) throw new BadRequestException('Email already in use');
-    }
-    if (phone) {
-      const byPhone = await this.prisma.user.findUnique({ where: { phone } });
-      if (byPhone) throw new BadRequestException('Phone already in use');
-    }
+    const byEmail = await this.prisma.user.findUnique({ where: { email } });
+    if (byEmail) throw new BadRequestException('Email already in use');
 
     try {
       const passwordHash = await bcrypt.hash(dto.password, 10);
       const user = await this.prisma.user.create({
-        data: { email, phone, passwordHash, role: dto.role as Role },
+        data: { email, passwordHash, role: dto.role as Role },
       });
       if (dto.role === Role.ALEXITHYMIC) {
         await this.prisma.alexithymicProfile.create({ data: { userId: user.id } });
@@ -47,24 +37,18 @@ export class AuthService {
       }
       await this.prisma.consent.create({ data: { userId: user.id, type: 'DATA_PROCESSING', version: '1.0.0' } });
       await this.prisma.auditLog.create({ data: { userId: user.id, eventType: 'AUTH_REGISTER', description: 'User registered' } });
-      return { id: user.id, email: user.email, phone: user.phone, role: user.role, therapistCode };
+      return { id: user.id, email: user.email, role: user.role, therapistCode };
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new BadRequestException('Email or phone already in use');
+        throw new BadRequestException('Email already in use');
       }
       throw e;
     }
   }
 
   async login(dto: LoginDto) {
-    const email = dto.email?.trim();
-    const phone = dto.phone?.trim();
-    if (!email && !phone) {
-      throw new BadRequestException('Provide email or phone');
-    }
-    const user = email
-      ? await this.prisma.user.findUnique({ where: { email } })
-      : await this.prisma.user.findUnique({ where: { phone: phone! } });
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
     const valid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
