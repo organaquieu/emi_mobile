@@ -35,9 +35,10 @@ export class AuthService {
         });
         therapistCode = profile.code;
       }
+      const tokens = await this.issueTokens(user.id, user.email ?? undefined, user.phone ?? undefined, user.role);
       await this.prisma.consent.create({ data: { userId: user.id, type: 'DATA_PROCESSING', version: '1.0.0' } });
       await this.prisma.auditLog.create({ data: { userId: user.id, eventType: 'AUTH_REGISTER', description: 'User registered' } });
-      return { id: user.id, email: user.email, role: user.role, therapistCode };
+      return { id: user.id, email: user.email, role: user.role, therapistCode, ...tokens };
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new BadRequestException('Email already in use');

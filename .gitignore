@@ -66,6 +66,14 @@ web_modules/
 .env.*
 !.env.example
 
+# Deploy templates / server scripts 
+deploy/
+docs/
+scripts/
+
+# pg_dump default output (scripts/sync-db-yandex.ps1 Dump)
+.db-backups/
+
 # Local cert
 certs/root.crt
 

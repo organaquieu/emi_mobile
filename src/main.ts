@@ -11,19 +11,28 @@ import { RolesGuard } from './common/guards/roles.guard.js';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const reflector = app.get(Reflector);
+  app.enableCors({ origin: true, credentials: true });
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalGuards(new JwtAuthGuard(reflector), new RolesGuard(reflector));
 
   const config = new DocumentBuilder()
-    .setTitle('Mood Tracking API')
-    .setDescription('Production-ready backend API')
+    .setTitle('Emi Mood Tracking API')
+    .setDescription(
+      'REST API дневника, рефлексии, TAS-20, согласий и AI (GigaChat). ' +
+        'Публичные маршруты: регистрация/вход/refresh и GET /tas/questions. ' +
+        'Остальное — с Bearer JWT (кроме AdminJS по /admin). ' +
+        'Спецификация: `/docs`, `/openapi.json`.',
+    )
     .setVersion('1.0.0')
-    .addBearerAuth()
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'accessToken из POST /auth/login или /auth/register' })
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  SwaggerModule.setup('docs', app, document, {
+    jsonDocumentUrl: '/openapi.json',
+    customSiteTitle: 'Emi API',
+  });
 
   const port = parseInt(process.env.PORT ?? '3000', 10);
   await app.listen(port);
