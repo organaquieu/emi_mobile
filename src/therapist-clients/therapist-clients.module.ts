@@ -33,6 +33,34 @@ class UpdateTherapistClientStatusDto {
 class TherapistClientsController {
   constructor(@Inject(PrismaService) private prisma: PrismaService) {}
 
+  private async listLinksWithNames(userId: string) {
+    const links = await this.prisma.therapistClient.findMany({
+      where: { OR: [{ therapistId: userId }, { alexithymicId: userId }] },
+      include: {
+        therapist: {
+          select: { fullName: true, code: true, userId: true },
+        },
+        alexithymic: {
+          select: {
+            nickname: true,
+            user: {
+              select: { email: true },
+            },
+          },
+        },
+      },
+    });
+
+    return links.map((link) => ({
+      ...link,
+      clientName:
+        link.alexithymic?.nickname?.trim() ||
+        link.alexithymic?.user?.email?.split('@')[0] ||
+        null,
+      clientEmail: link.alexithymic?.user?.email ?? null,
+    }));
+  }
+
   @Get('therapists/me/code')
   @ApiOperation({ summary: 'Получить свой код терапевта (для передачи клиенту)' })
   async myCode(@Req() req: any) {
@@ -61,12 +89,30 @@ class TherapistClientsController {
     if (!code) throw new BadRequestException('code is required');
     const therapist = await this.prisma.therapistProfile.findUnique({ where: { code } });
     if (!therapist) throw new NotFoundException('Therapist with this code not found');
+    const existing = await this.prisma.therapistClient.findFirst({
+      where: { therapistId: therapist.userId, alexithymicId: req.user.sub },
+      select: { id: true, status: true },
+    });
+    if (existing) {
+      if (existing.status === 'ACTIVE') {
+        return this.prisma.therapistClient.findUniqueOrThrow({ where: { id: existing.id } });
+      }
+      return this.prisma.therapistClient.update({ where: { id: existing.id }, data: { status: 'ACTIVE', endDate: null } });
+    }
     return this.prisma.therapistClient.create({ data: { therapistId: therapist.userId, alexithymicId: req.user.sub } });
   }
 
   @Get('therapist-clients')
   @ApiOperation({ summary: 'Список связок терапевт-клиент для текущего пользователя' })
-  list(@Req() req: any) { return this.prisma.therapistClient.findMany({ where: { OR: [{ therapistId: req.user.sub }, { alexithymicId: req.user.sub }] } }); }
+  list(@Req() req: any) {
+    return this.listLinksWithNames(req.user.sub);
+  }
+
+  @Get('client-therapist')
+  @ApiOperation({ summary: 'Alias списка связок с именем клиента' })
+  clientTherapist(@Req() req: any) {
+    return this.listLinksWithNames(req.user.sub);
+  }
 
   @Patch('therapist-clients/:id/status')
   @ApiOperation({ summary: 'Изменить статус связки (ACTIVE/PAUSED/FINISHED)' })

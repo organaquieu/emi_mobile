@@ -6,6 +6,7 @@ import {
   Get,
   Inject,
   Module,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -108,6 +109,12 @@ class CreateDiaryEntryDto {
     description: DIARY_ENTRY_TAGS_SWAGGER_DESCRIPTION,
     example: ['Работа', 'Стресс'],
   })
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') return [value];
+    return value;
+  })
   @IsOptional()
   @IsArray()
   @Type(() => String)
@@ -132,12 +139,54 @@ class CreateDiaryEntryDto {
 
 class UpdateDiaryEntryDto extends CreateDiaryEntryDto {}
 
+class UpdateDiaryEntryByBodyDto extends UpdateDiaryEntryDto {
+  @ApiPropertyOptional({ type: String, description: 'ID записи дневника', example: '2c5ef4be-2d87-4f62-babc-23f984f2be14' })
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @ApiPropertyOptional({ type: String, description: 'Алиас для ID записи дневника', example: '2c5ef4be-2d87-4f62-babc-23f984f2be14' })
+  @IsOptional()
+  @IsString()
+  diaryEntryId?: string;
+}
+
 @ApiTags('diary')
 @ApiBearerAuth()
 @ApiExtraModels(DiaryEmotionPickDto)
 @Controller('diary')
 class DiaryEntriesController {
   constructor(@Inject(PrismaService) private prisma: PrismaService) {}
+
+  private async updateEntryById(req: any, id: string, body: UpdateDiaryEntryDto) {
+    if (req.user.role === 'THERAPIST') throw new ForbiddenException('Therapist cannot edit diary entries');
+    const existing = await this.prisma.diaryEntry.findFirst({
+      where: { id, alexithymicId: req.user.sub, isDeleted: false },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Diary entry not found');
+    const data: Record<string, unknown> = {};
+    if (body.situation !== undefined) data.situation = body.situation;
+    if (body.thought !== undefined) data.thought = body.thought;
+    if (body.reaction !== undefined) data.reaction = body.reaction;
+    if (body.behavior !== undefined) data.behavior = body.behavior;
+    if (body.behaviorAlt !== undefined) data.behaviorAlt = body.behaviorAlt;
+    if (body.tags !== undefined) data.tags = serializeDiaryEntryTags(body.tags);
+    if (body.visibility !== undefined) data.visibility = body.visibility;
+    if (body.emotion !== undefined) {
+      data.emotion = scalarEmotionSummary(body.emotion);
+      return this.prisma.$transaction(async (tx) => {
+        if (Object.keys(data).length) await tx.diaryEntry.update({ where: { id }, data });
+        await replaceUserRatedEmotionsForEntry(tx, id, body.emotion!);
+        return tx.diaryEntry.findUniqueOrThrow({ where: { id }, include: DIARY_ENTRY_DETAIL_INCLUDE });
+      });
+    }
+    return this.prisma.diaryEntry.update({
+      where: { id },
+      data,
+      include: DIARY_ENTRY_DETAIL_INCLUDE,
+    });
+  }
 
   @Post()
   @ApiBody({ type: () => CreateDiaryEntryDto })
@@ -203,6 +252,13 @@ class DiaryEntriesController {
     schema: { type: 'string', enum: DIARY_ENTRY_TAGS_FOR_VALIDATION },
     description: 'Фильтр: подстрока в сохранённом поле tags (можно выбрать значение из списка)',
   })
+  @ApiQuery({
+    name: 'all',
+    required: false,
+    type: Boolean,
+    description: 'Если true, вернуть все записи без пагинации',
+    example: true,
+  })
   list(@Req() req: any, @Query() query: any) {
     if (req.user.role === 'THERAPIST') {
       throw new ForbiddenException(
@@ -220,13 +276,14 @@ class DiaryEntriesController {
       }
       visibilityFilter = { visibility: v as 'PRIVATE' | 'THERAPIST' };
     }
-    const take = Math.min(Math.max(1, Number(query.limit ?? 20)), 100);
-    const skip = Math.max(0, Number(query.offset ?? 0));
+    const queryAll = String(query.all ?? '').trim().toLowerCase() === 'true';
+    const take = queryAll ? undefined : Math.min(Math.max(1, Number(query.limit ?? 20)), 100);
+    const skip = queryAll ? undefined : Math.max(0, Number(query.offset ?? 0));
     return this.prisma.diaryEntry.findMany({
       where: { alexithymicId: req.user.sub, isDeleted: false, ...tagsFilter, ...visibilityFilter },
       orderBy: { createdAt: 'desc' },
-      take,
-      skip,
+      ...(take !== undefined ? { take } : {}),
+      ...(skip !== undefined ? { skip } : {}),
       include: DIARY_ENTRY_DETAIL_INCLUDE,
     });
   }
@@ -246,28 +303,16 @@ class DiaryEntriesController {
   @ApiBody({ type: () => UpdateDiaryEntryDto })
   @ApiOperation({ summary: 'Update diary entry' })
   async update(@Req() req: any, @Param('id') id: string, @Body() body: UpdateDiaryEntryDto) {
-    if (req.user.role === 'THERAPIST') throw new ForbiddenException('Therapist cannot edit diary entries');
-    const data: Record<string, unknown> = {};
-    if (body.situation !== undefined) data.situation = body.situation;
-    if (body.thought !== undefined) data.thought = body.thought;
-    if (body.reaction !== undefined) data.reaction = body.reaction;
-    if (body.behavior !== undefined) data.behavior = body.behavior;
-    if (body.behaviorAlt !== undefined) data.behaviorAlt = body.behaviorAlt;
-    if (body.tags !== undefined) data.tags = serializeDiaryEntryTags(body.tags);
-    if (body.visibility !== undefined) data.visibility = body.visibility;
-    if (body.emotion !== undefined) {
-      data.emotion = scalarEmotionSummary(body.emotion);
-      return this.prisma.$transaction(async (tx) => {
-        if (Object.keys(data).length) await tx.diaryEntry.update({ where: { id }, data });
-        await replaceUserRatedEmotionsForEntry(tx, id, body.emotion!);
-        return tx.diaryEntry.findUniqueOrThrow({ where: { id }, include: DIARY_ENTRY_DETAIL_INCLUDE });
-      });
-    }
-    return this.prisma.diaryEntry.update({
-      where: { id },
-      data,
-      include: DIARY_ENTRY_DETAIL_INCLUDE,
-    });
+    return this.updateEntryById(req, id, body);
+  }
+
+  @Patch()
+  @ApiBody({ type: () => UpdateDiaryEntryByBodyDto })
+  @ApiOperation({ summary: 'Update diary entry by id in request body' })
+  async updateByBody(@Req() req: any, @Body() body: UpdateDiaryEntryByBodyDto) {
+    const id = body.id?.trim() || body.diaryEntryId?.trim();
+    if (!id) throw new BadRequestException('id or diaryEntryId is required');
+    return this.updateEntryById(req, id, body);
   }
 
   @Delete(':id')

@@ -20,6 +20,7 @@ model User {
   consents           Consent[]
   auditLogs          AuditLog[]
   tasAttempts        TasAttempt[]
+  aiConsultations    AIConsultation[]
 }
 
 enum Role {
@@ -153,13 +154,15 @@ enum Valence {
 }
 
 model AIConsultation {
-  id           String    @id @default(uuid())
-  diaryEntryId String
-  diaryEntry   DiaryEntry @relation(fields: [diaryEntryId], references: [id])
+  id           String     @id @default(uuid())
+  userId       String?
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  diaryEntryId String?
+  diaryEntry   DiaryEntry? @relation(fields: [diaryEntryId], references: [id])
   prompt       String
   response     String
   modelVersion String
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime   @default(now())
 }
 
 model Consent {

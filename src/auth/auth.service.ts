@@ -93,7 +93,7 @@ export class AuthService {
 
   private async issueTokens(userId: string, email: string | undefined, phone: string | undefined, role: string) {
     const payload = { sub: userId, email, phone, role };
-    const accessToken = await this.jwt.signAsync(payload, { secret: this.config.get<string>('JWT_ACCESS_SECRET'), expiresIn: '15m' });
+    const accessToken = await this.jwt.signAsync(payload, { secret: this.config.get<string>('JWT_ACCESS_SECRET'), expiresIn: '3h' });
     const refreshToken = await this.jwt.signAsync(payload, { secret: this.config.get<string>('JWT_REFRESH_SECRET'), expiresIn: '30d' });
     return { accessToken, refreshToken };
   }

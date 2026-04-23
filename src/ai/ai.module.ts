@@ -1,5 +1,6 @@
-import { Module, Controller, Post, Body, Req, ForbiddenException, HttpException, HttpStatus, InternalServerErrorException, Inject } from '@nestjs/common';
+import { Module, Controller, Post, Body, Req, HttpException, HttpStatus, InternalServerErrorException, Inject } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ConfigService } from '@nestjs/config';
@@ -14,13 +15,29 @@ type GigaChatTokenPayload = {
 };
 
 class AIConsultDto {
-  @ApiProperty({ type: String, description: 'ID записи дневника', example: '2c5ef4be-2d87-4f62-babc-23f984f2be14' })
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Необязательно: ID записи дневника для привязки сохранённой консультации (пустая строка = без привязки)',
+    example: '2c5ef4be-2d87-4f62-babc-23f984f2be14',
+  })
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
+  @IsOptional()
   @IsString()
-  diaryEntryId!: string;
+  diaryEntryId?: string;
 
   @ApiProperty({ type: String, description: 'Промпт для AI', example: 'Помоги разобрать мои эмоции в этой ситуации.' })
   @IsString()
   prompt!: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Идентификатор текущей чат-сессии (для контекста сообщений). По умолчанию: default',
+    example: 'chat-main',
+  })
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
+  @IsOptional()
+  @IsString()
+  sessionId?: string;
 }
 
 class AIAcceptDto {
@@ -51,6 +68,7 @@ class AIRejectDto {
 @Controller('ai')
 class AIController {
   private cachedToken: { token: string; expiresAtMs: number } | null = null;
+  private readonly sessionMemory = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
 
   constructor(@Inject(PrismaService) private prisma: PrismaService, @Inject(ConfigService) private config: ConfigService) {}
 
@@ -117,19 +135,125 @@ class AIController {
     return undefined;
   }
 
+  private buildSessionKey(userId: string, sessionId?: string): string {
+    const normalizedSessionId = sessionId?.trim() || 'default';
+    return `${userId}:${normalizedSessionId}`;
+  }
+
+  private limitText(value: string, max = 1200): string {
+    if (value.length <= max) return value;
+    return `${value.slice(0, max)}...`;
+  }
+
+  private pushSessionMessage(sessionKey: string, role: 'user' | 'assistant', content: string) {
+    const memory = this.sessionMemory.get(sessionKey) ?? [];
+    memory.push({ role, content: this.limitText(content, 1200) });
+    if (memory.length > 20) {
+      memory.splice(0, memory.length - 20);
+    }
+    this.sessionMemory.set(sessionKey, memory);
+  }
+
+  private getSessionMessages(sessionKey: string): Array<{ role: 'user' | 'assistant'; content: string }> {
+    return this.sessionMemory.get(sessionKey) ?? [];
+  }
+
+  private extractAssistantText(payload: any): string {
+    const direct = payload?.choices?.[0]?.message?.content;
+    if (typeof direct === 'string' && direct.trim().length > 0) return direct;
+    return JSON.stringify(payload);
+  }
+
+  private buildChatMessages(
+    prompt: string,
+    diaryContext: string,
+    sessionMessages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    compact = false,
+  ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+    if (compact) {
+      return [
+        { role: 'system', content: buildAIConsultSystemPrompt() },
+        { role: 'user', content: this.limitText(prompt, 2000) },
+      ];
+    }
+    const shortSession = sessionMessages.slice(-8).map((m) => ({
+      role: m.role,
+      content: this.limitText(m.content, 800),
+    }));
+    const systemWithDiary = [
+      buildAIConsultSystemPrompt(),
+      '',
+      'Контекст последних 3 записей дневника:',
+      this.limitText(diaryContext, 3000),
+    ].join('\n');
+    return [
+      { role: 'system', content: systemWithDiary },
+      ...shortSession,
+      { role: 'user', content: this.limitText(prompt, 2000) },
+    ];
+  }
+
+  private async buildRecentDiaryContext(userId: string): Promise<string> {
+    const entries = await this.prisma.diaryEntry.findMany({
+      where: { alexithymicId: userId, isDeleted: false },
+      orderBy: { createdAt: 'desc' },
+      take: 3,
+      select: {
+        createdAt: true,
+        situation: true,
+        thought: true,
+        reaction: true,
+        emotion: true,
+        behavior: true,
+        behaviorAlt: true,
+        tags: true,
+      },
+    });
+    if (!entries.length) {
+      return 'Последние записи дневника отсутствуют.';
+    }
+    return entries
+      .map((entry, idx) => {
+        const date = entry.createdAt.toISOString();
+        return [
+          `Запись ${idx + 1} (${date}):`,
+          `- situation: ${entry.situation ?? '-'}`,
+          `- thought: ${entry.thought ?? '-'}`,
+          `- reaction: ${entry.reaction ?? '-'}`,
+          `- emotion: ${entry.emotion ?? '-'}`,
+          `- behavior: ${entry.behavior ?? '-'}`,
+          `- behaviorAlt: ${entry.behaviorAlt ?? '-'}`,
+          `- tags: ${entry.tags ?? '-'}`,
+        ].join('\n');
+      })
+      .join('\n\n');
+  }
+
   @Post('consult')
   @ApiOperation({
     summary: 'AI консультация через GigaChat',
     description:
-      'Модель получает системный промпт рефлексии (без диагноза, JSON: reply, emotions×5 из каталога GET /emotions, suggested_next).',
+      'Модель получает системный промпт рефлексии (без диагноза, JSON: reply, emotions×5 из каталога GET /emotions, suggested_next). ' +
+        'Поле diaryEntryId необязательно; лимит запросов считается по пользователю.',
   })
   @ApiBody({ type: AIConsultDto })
   async consult(@Req() req: any, @Body() body: AIConsultDto) {
-    const consent = await this.prisma.consent.findFirst({ where: { userId: req.user.sub, type: 'AI_USAGE', isActive: true } });
-    if (!consent) throw new ForbiddenException('AI_USAGE consent required');
+    const rawDiaryEntryId = typeof body.diaryEntryId === 'string' ? body.diaryEntryId.trim() : '';
+    let diaryEntryId: string | null = null;
+    if (rawDiaryEntryId) {
+      const entry = await this.prisma.diaryEntry.findFirst({
+        where: { id: rawDiaryEntryId, alexithymicId: req.user.sub, isDeleted: false },
+        select: { id: true },
+      });
+      diaryEntryId = entry?.id ?? null;
+    }
+
     const since = new Date(Date.now() - 60 * 60 * 1000);
-    const cnt = await this.prisma.aIConsultation.count({ where: { diaryEntry: { alexithymicId: req.user.sub }, createdAt: { gte: since } } });
+    const cnt = await this.prisma.aIConsultation.count({ where: { userId: req.user.sub, createdAt: { gte: since } } as any });
     if (cnt >= 10) throw new HttpException('Limit exceeded', HttpStatus.TOO_MANY_REQUESTS);
+    const sessionKey = this.buildSessionKey(req.user.sub, body.sessionId);
+    const sessionMessages = this.getSessionMessages(sessionKey);
+    const diaryContext = await this.buildRecentDiaryContext(req.user.sub);
     const model = this.getNonEmptyConfig('GIGACHAT_MODEL', 'AI_MODEL_VERSION') ?? 'GigaChat';
     const accessToken = await this.getGigaChatAccessToken();
     let response: AxiosResponse<any> | null = null;
@@ -137,20 +261,38 @@ class AIController {
     const failed: string[] = [];
     const chatUrls = this.getChatCompletionUrls();
     for (const chatUrl of chatUrls) {
+      const messageVariants = [
+        this.buildChatMessages(body.prompt, diaryContext, sessionMessages, false),
+        this.buildChatMessages(body.prompt, diaryContext, sessionMessages, true),
+      ];
       try {
-        response = await axios.post(chatUrl, {
-          model,
-          messages: [
-            { role: 'system', content: buildAIConsultSystemPrompt() },
-            { role: 'user', content: body.prompt },
-          ],
-          temperature: 0.7,
-        }, {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
+        for (let i = 0; i < messageVariants.length; i++) {
+          try {
+            response = await axios.post(chatUrl, {
+              model,
+              messages: messageVariants[i],
+              temperature: 0.7,
+            }, {
+              headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+              },
+            });
+            break;
+          } catch (inner) {
+            if (!axios.isAxiosError(inner)) throw inner;
+            const status = inner.response?.status ?? 'NO_RESPONSE';
+            failed.push(`${chatUrl}[variant:${i}] -> ${status}`);
+            if (inner.response?.status === 422 && i === 0) {
+              continue;
+            }
+            if (inner.response?.status === 404) {
+              throw inner;
+            }
+            throw inner;
+          }
+        }
+        if (!response) throw new HttpException('No response from chat variants', HttpStatus.BAD_GATEWAY);
         break;
       } catch (e) {
         lastError = e;
@@ -170,7 +312,18 @@ class AIController {
     }
 
     const text = JSON.stringify(response.data);
-    const saved = await this.prisma.aIConsultation.create({ data: { diaryEntryId: body.diaryEntryId, prompt: body.prompt, response: text, modelVersion: model } });
+    const assistantText = this.extractAssistantText(response.data);
+    this.pushSessionMessage(sessionKey, 'user', body.prompt);
+    this.pushSessionMessage(sessionKey, 'assistant', assistantText);
+    const saved = await this.prisma.aIConsultation.create({
+      data: {
+        userId: req.user.sub,
+        diaryEntryId: diaryEntryId ?? undefined,
+        prompt: body.prompt,
+        response: text,
+        modelVersion: model,
+      } as any,
+    });
     return { consultationId: saved.id, result: response.data };
   }
 
